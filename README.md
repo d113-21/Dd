@@ -1,234 +1,76 @@
-local OrionLib = loadstring(game:HttpGet(('https://raw.githubusercontent.com/shlexware/Orion/main/source')))()
-local Players = game:GetService("Players")
-local ReplicatedStorage = game:GetService("ReplicatedStorage")
-local LocalPlayer = Players.LocalPlayer
+local Remote = Instance.new("RemoteEvent")
+Remote.Name = "ServerLagControl"
+Remote.Parent = game:GetService("ReplicatedStorage")
 
-local Window = OrionLib:MakeWindow({
-    Name = "Blobman Kick V2",
-    HidePremium = false,
-    SaveConfig = true,
-    ConfigFolder = "BlobmanKick"
-})
+local isLooping = false
+local loopConnection = nil
+local lagCount = 10000
+local lagMethod = "Print"
 
-local function GetPlayerByName(name)
-    name = name:lower()
-    for _, p in ipairs(Players:GetPlayers()) do
-        if p ~= LocalPlayer and p.Name:lower():sub(1, #name) == name then
-            return p
+local methods = {
+    Print = function()
+        for i = 1, lagCount do
+            print("ServerLag: " .. i)
+        end
+    end,
+    Part = function()
+        for i = 1, lagCount do
+            local p = Instance.new("Part")
+            p.Size = Vector3.new(1, 1, 1)
+            p.Anchored = true
+            p.CFrame = CFrame.new(
+                math.random(-1000, 1000),
+                math.random(-1000, 1000),
+                math.random(-1000, 1000)
+            )
+            p.Parent = workspace
+            game:GetService("Debris"):AddItem(p, 0.1)
+        end
+    end,
+    Math = function()
+        for i = 1, lagCount do
+            local x = math.random(1, 1000000)
+            local y = math.sqrt(x) * math.pi
+            local z = math.sin(y) / math.cos(x + 1)
         end
     end
-    return nil
-end
+}
 
-local function GetPlayerNames()
-    local names = {}
-    for _, p in ipairs(Players:GetPlayers()) do
-        if p ~= LocalPlayer then
-            table.insert(names, p.Name)
+local function startLoop()
+    if loopConnection then return end
+    isLooping = true
+    loopConnection = game:GetService("RunService").Heartbeat:Connect(function()
+        if not isLooping then return end
+        if methods[lagMethod] then
+            methods[lagMethod]()
         end
-    end
-    return names
-end
-
-local MainTab = Window:MakeTab({
-    Name = "Kick",
-    Icon = "rbxassetid://4483345998",
-    PremiumOnly = false
-})
-
-local selectedPlayer = nil
-local playerDropdown = MainTab:AddDropdown({
-    Name = "Target",
-    Default = "Select Player",
-    Options = GetPlayerNames(),
-    Callback = function(value)
-        selectedPlayer = GetPlayerByName(value)
-        if selectedPlayer then
-            print("Target set: " .. selectedPlayer.Name)
-        end
-    end
-})
-
-local function UpdatePlayerList()
-    local names = GetPlayerNames()
-    if #names > 0 then
-        playerDropdown:Refresh(names, true)
-    else
-        playerDropdown:Refresh({"No Players"}, true)
-    end
-end
-
-Players.PlayerAdded:Connect(function()
-    task.wait(1)
-    UpdatePlayerList()
-end)
-
-Players.PlayerRemoving:Connect(function()
-    task.wait(0.5)
-    UpdatePlayerList()
-end)
-
-local kickLoopActive = false
-local kickConnection = nil
-
-local function KickBlobman(target)
-    if not target then return false end
-    
-    local GE = ReplicatedStorage:FindFirstChild("GrabEvents")
-    if not GE then
-        warn("GrabEvents not found!")
-        return false
-    end
-    
-    local remoteEvent = GE:FindFirstChild("Grab") or GE:FindFirstChild("Kick") or GE:FindFirstChild("BlobmanKick")
-    if not remoteEvent then
-        warn("Kick remote not found!")
-        for _, child in ipairs(GE:GetChildren()) do
-            print("Child: " .. child.Name)
-        end
-        return false
-    end
-    
-    local success, err = pcall(function()
-        remoteEvent:FireServer(target)
     end)
-    
-    if success then
-        print("Kicked: " .. target.Name)
-        return true
-    else
-        warn("Kick failed: " .. tostring(err))
-        return false
+end
+
+local function stopLoop()
+    isLooping = false
+    if loopConnection then
+        loopConnection:Disconnect()
+        loopConnection = nil
     end
 end
 
-local function StartKickLoop(target)
-    if kickLoopActive then
-        StopKickLoop()
-    end
-    
-    if not target then
-        OrionLib:MakeNotification({
-            Name = "Error",
-            Content = "No target selected!",
-            Image = "rbxassetid://4483345998",
-            Time = 3
-        })
-        return
-    end
-    
-    kickLoopActive = true
-    
-    kickConnection = game:GetService("RunService").Heartbeat:Connect(function()
-        if not kickLoopActive then return end
-        if not target or not target.Parent then
-            StopKickLoop()
-            OrionLib:MakeNotification({
-                Name = "Stopped",
-                Content = "Target left",
-                Image = "rbxassetid://4483345998",
-                Time = 2
-            })
-            return
+Remote.OnServerEvent:Connect(function(player, action, value)
+    if action == "Toggle" then
+        if value then startLoop() else stopLoop() end
+    elseif action == "SetCount" then
+        lagCount = tonumber(value) or 10000
+        if isLooping then
+            stopLoop()
+            startLoop()
         end
-        KickBlobman(target)
-    end)
-    
-    OrionLib:MakeNotification({
-        Name = "Started",
-        Content = "Kicking: " .. target.Name,
-        Image = "rbxassetid://4483345998",
-        Time = 2
-    })
-end
-
-local function StopKickLoop()
-    kickLoopActive = false
-    if kickConnection then
-        kickConnection:Disconnect()
-        kickConnection = nil
-    end
-    OrionLib:MakeNotification({
-        Name = "Stopped",
-        Content = "Kick loop stopped",
-        Image = "rbxassetid://4483345998",
-        Time = 2
-    })
-end
-
-MainTab:AddButton({
-    Name = "Start Kick Loop",
-    Callback = function()
-        StartKickLoop(selectedPlayer)
-    end
-})
-
-MainTab:AddButton({
-    Name = "Stop Kick Loop",
-    Callback = function()
-        StopKickLoop()
-    end
-})
-
-MainTab:AddButton({
-    Name = "Kick Once",
-    Callback = function()
-        if selectedPlayer then
-            if KickBlobman(selectedPlayer) then
-                OrionLib:MakeNotification({
-                    Name = "Success",
-                    Content = "Kicked " .. selectedPlayer.Name,
-                    Image = "rbxassetid://4483345998",
-                    Time = 2
-                })
-            end
-        else
-            OrionLib:MakeNotification({
-                Name = "Error",
-                Content = "Select a target first",
-                Image = "rbxassetid://4483345998",
-                Time = 2
-            })
+    elseif action == "SetMethod" then
+        lagMethod = tostring(value) or "Print"
+        if isLooping then
+            stopLoop()
+            startLoop()
         end
+    elseif action == "EmergencyStop" then
+        stopLoop()
     end
-})
-
-local StatusTab = Window:MakeTab({
-    Name = "Status",
-    Icon = "rbxassetid://4483345998",
-    PremiumOnly = false
-})
-
-StatusTab:AddParagraph({
-    Name = "Current Status",
-    Content = "Waiting...\nTarget: " .. (selectedPlayer and selectedPlayer.Name or "None")
-})
-
-local SettingsTab = Window:MakeTab({
-    Name = "Settings",
-    Icon = "rbxassetid://4483345998",
-    PremiumOnly = false
-})
-
-local kickInterval = 0.1
-SettingsTab:AddSlider({
-    Name = "Kick Interval (sec)",
-    Min = 0.01,
-    Max = 1,
-    Default = 0.1,
-    Color = Color3.fromRGB(255, 255, 255),
-    Increment = 0.01,
-    ValueName = "s",
-    Callback = function(value)
-        kickInterval = value
-        if kickLoopActive then
-            local currentTarget = selectedPlayer
-            StopKickLoop()
-            task.wait(0.1)
-            StartKickLoop(currentTarget)
-        end
-        print("Interval updated: " .. kickInterval)
-    end
-})
-
-OrionLib:Init()
+end)
